@@ -1,0 +1,55 @@
+name: 'Setup Bitwarden Secrets Manager CLI'
+description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws)'
+inputs:
+  version:
+    description: 'Version of bws to install (e.g., 0.6.0, or latest)'
+    required: false
+    default: 'latest'
+  github-token:
+    description: 'GitHub token for API authentication to avoid rate limits'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and Install bws
+      shell: bash
+      run: |
+        INPUT_VERSION="${{ inputs.version }}"
+        TOKEN="${{ inputs.github-token }}"
+        
+        AUTH_HEADER=()
+        if [ -n "$TOKEN" ]; then
+          AUTH_HEADER=(-H "Authorization: Bearer $TOKEN")
+        fi
+
+        if [ "$INPUT_VERSION" = "latest" ]; then
+          VERSION=$(curl -sSL "${AUTH_HEADER[@]}" https://api.github.com/repos/bitwarden/sdk-sm/releases | \
+            jq -r '.[].tag_name' | \
+            grep '^bws-v' | \
+            sed 's/bws-v//' | \
+            sort -V | \
+            tail -n 1)
+          
+          if [ -z "$VERSION" ]; then
+            echo "Failed to resolve latest version for bws"
+            exit 1
+          fi
+          echo "Resolved latest version: ${VERSION}"
+        else
+          VERSION="$INPUT_VERSION"
+        fi
+
+        echo "Installing bws version ${VERSION}..."
+        
+        URL="https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VERSION}/bws-x86_64-unknown-linux-gnu-${VERSION}.zip"
+        
+        curl -sSL -o bws.zip "$URL"
+        unzip -q bws.zip
+        chmod +x bws
+        
+        sudo mv bws /usr/local/bin/
+        rm bws.zip
+        
+        bws --version
