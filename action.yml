@@ -1,5 +1,5 @@
 name: 'Setup Bitwarden Secrets Manager CLI'
-description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws)'
+description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws) with caching and github-script'
 inputs:
   version:
     description: 'Version of bws to install (e.g., 0.6.0, or latest)'
@@ -13,35 +13,61 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Resolve bws Version
+      id: resolve-version
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const inputVersion = '${{ inputs.version }}';
+          
+          if (inputVersion !== 'latest') {
+            core.setOutput('version', inputVersion);
+            return;
+          }
+
+          const releases = await github.paginate(github.rest.repos.listReleases, {
+            owner: 'bitwarden',
+            repo: 'sdk-sm',
+          });
+
+          const bwsVersions = releases
+            .map(r => r.tag_name)
+            .filter(tag => tag && tag.startsWith('bws-v'))
+            .map(tag => tag.replace('bws-v', ''));
+
+          if (bwsVersions.length === 0) {
+            core.setFailed('Failed to find any bws-v releases in bitwarden/sdk-sm');
+            return;
+          }
+
+          bwsVersions.sort((a, b) => {
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+              const na = pa[i] || 0;
+              const nb = pb[i] || 0;
+              if (na !== nb) return na - nb;
+            }
+            return 0;
+          });
+
+          const latestVersion = bwsVersions[bwsVersions.length - 1];
+          core.info(`Resolved latest bws version: ${latestVersion}`);
+          core.setOutput('version', latestVersion);
+
+    - name: Cache bws Binary
+      id: cache-bws
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/bws
+        key: bws-${{ runner.os }}-${{ steps.resolve-version.outputs.version }}
+
     - name: Download and Install bws
+      if: steps.cache-bws.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        INPUT_VERSION="${{ inputs.version }}"
-        TOKEN="${{ inputs.github-token }}"
-        
-        AUTH_HEADER=()
-        if [ -n "$TOKEN" ]; then
-          AUTH_HEADER=(-H "Authorization: Bearer $TOKEN")
-        fi
-
-        if [ "$INPUT_VERSION" = "latest" ]; then
-          VERSION=$(curl -sSL "${AUTH_HEADER[@]}" https://api.github.com/repos/bitwarden/sdk-sm/releases | \
-            jq -r '.[].tag_name' | \
-            grep '^bws-v' | \
-            sed 's/bws-v//' | \
-            sort -V | \
-            tail -n 1)
-          
-          if [ -z "$VERSION" ]; then
-            echo "Failed to resolve latest version for bws"
-            exit 1
-          fi
-          echo "Resolved latest version: ${VERSION}"
-        else
-          VERSION="$INPUT_VERSION"
-        fi
-
-        echo "Installing bws version ${VERSION}..."
+        VERSION="${{ steps.resolve-version.outputs.version }}"
         
         URL="https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VERSION}/bws-x86_64-unknown-linux-gnu-${VERSION}.zip"
         
@@ -51,5 +77,8 @@ runs:
         
         sudo mv bws /usr/local/bin/
         rm bws.zip
-        
+
+    - name: Verify bws Installation
+      shell: bash
+      run: |
         bws --version
