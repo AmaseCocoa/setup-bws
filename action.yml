@@ -1,5 +1,10 @@
 name: 'Setup Bitwarden Secrets Manager CLI'
 description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws) in a isolated temp directory'
+
+branding:
+  icon: lock
+  color: blue
+
 inputs:
   version:
     description: 'Version of bws to install (e.g., 0.6.0, or latest)'
