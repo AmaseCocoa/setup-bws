@@ -1,5 +1,5 @@
 name: 'Setup Bitwarden Secrets Manager CLI'
-description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws) with caching and github-script'
+description: 'Downloads and installs the Bitwarden Secrets Manager CLI (bws) in a isolated temp directory'
 inputs:
   version:
     description: 'Version of bws to install (e.g., 0.6.0, or latest)'
@@ -15,7 +15,7 @@ runs:
   steps:
     - name: Resolve bws Version
       id: resolve-version
-      uses: actions/github-script@v9
+      uses: actions/github-script@v7
       with:
         github-token: ${{ inputs.github-token }}
         script: |
@@ -60,7 +60,7 @@ runs:
       id: cache-bws
       uses: actions/cache@v4
       with:
-        path: /usr/local/bin/bws
+        path: ${{ runner.temp }}/bin/bws
         key: bws-${{ runner.os }}-${{ steps.resolve-version.outputs.version }}
 
     - name: Download and Install bws
@@ -68,6 +68,7 @@ runs:
       shell: bash
       run: |
         VERSION="${{ steps.resolve-version.outputs.version }}"
+        echo "Cache miss. Downloading bws version ${VERSION}..."
         
         URL="https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VERSION}/bws-x86_64-unknown-linux-gnu-${VERSION}.zip"
         
@@ -75,8 +76,14 @@ runs:
         unzip -q bws.zip
         chmod +x bws
         
-        sudo mv bws /usr/local/bin/
+        mkdir -p "${{ runner.temp }}/bin"
+        mv bws "${{ runner.temp }}/bin/"
         rm bws.zip
+
+    - name: Add bws to PATH
+      shell: bash
+      run: |
+        echo "${{ runner.temp }}/bin" >> $GITHUB_PATH
 
     - name: Verify bws Installation
       shell: bash
